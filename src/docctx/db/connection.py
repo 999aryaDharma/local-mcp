@@ -31,6 +31,12 @@ def get_connection(db_path: Path | None = None) -> sqlite3.Connection:
     path = db_path or get_db_path()
     conn = sqlite3.connect(str(path))
     conn.row_factory = sqlite3.Row
+    
+    # Load sqlite-vec extension
+    conn.enable_load_extension(True)
+    import sqlite_vec
+    sqlite_vec.load(conn)
+    conn.enable_load_extension(False)
 
     # Required pragmas
     conn.execute("PRAGMA journal_mode=WAL")
@@ -62,6 +68,13 @@ def init_db(db_path: Path | None = None) -> None:
     with db_connection(db_path) as conn:
         # Execute schema (CREATE TABLE IF NOT EXISTS — safe to run multiple times)
         conn.executescript(schema_sql)
+        
+        # Create vector table dynamically based on dimension
+        from docctx.config import load_config
+        cfg = load_config()
+        dim = cfg.embeddings.dimension
+        conn.execute(f"CREATE VIRTUAL TABLE IF NOT EXISTS chunks_vec USING vec0(embedding float[{dim}])")
+        
         conn.commit()
 
 

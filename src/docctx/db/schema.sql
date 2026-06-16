@@ -50,6 +50,7 @@ CREATE TABLE IF NOT EXISTS chunks (
     heading_title   TEXT NOT NULL,
     content         TEXT NOT NULL,
     summary         TEXT NOT NULL,
+    llm_summary     TEXT,
     content_preview TEXT NOT NULL,
     code_content    TEXT NOT NULL DEFAULT '',
     token_count     INTEGER NOT NULL DEFAULT 0,
@@ -94,6 +95,7 @@ CREATE TRIGGER IF NOT EXISTS chunks_ad AFTER DELETE ON chunks BEGIN
             normalize_text(old.heading_title),
             normalize_text(old.content),
             normalize_text(old.code_content));
+    DELETE FROM chunks_vec WHERE rowid = old.rowid;
 END;
 
 CREATE TRIGGER IF NOT EXISTS chunks_au AFTER UPDATE ON chunks BEGIN
@@ -111,21 +113,13 @@ CREATE TRIGGER IF NOT EXISTS chunks_au AFTER UPDATE ON chunks BEGIN
             normalize_text(new.code_content));
 END;
 
--- Future-proof embeddings stub (empty in M1)
-CREATE TABLE IF NOT EXISTS embeddings (
-    chunk_id    TEXT PRIMARY KEY REFERENCES chunks(id) ON DELETE CASCADE,
-    model       TEXT NOT NULL,
-    vector      BLOB NOT NULL,
-    created_at  TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now'))
-);
-
--- Phase 2 stub: chunk cross-references
-CREATE TABLE IF NOT EXISTS chunk_relations (
-    from_chunk_id   TEXT NOT NULL REFERENCES chunks(id) ON DELETE CASCADE,
-    to_chunk_id     TEXT NOT NULL REFERENCES chunks(id) ON DELETE CASCADE,
-    relation_type   TEXT NOT NULL,  -- 'see_also' | 'child_of' | 'example_of'
+-- Phase 2.3: Knowledge Graph Extracted Relations
+CREATE TABLE IF NOT EXISTS concept_edges (
+    chunk_id        TEXT NOT NULL REFERENCES chunks(id) ON DELETE CASCADE,
+    target_concept  TEXT NOT NULL,
+    relation_type   TEXT NOT NULL,  -- 'depends_on' | 'warning'
     weight          REAL NOT NULL DEFAULT 1.0,
-    PRIMARY KEY (from_chunk_id, to_chunk_id, relation_type)
+    PRIMARY KEY (chunk_id, target_concept, relation_type)
 );
 
 -- Insert initial schema version

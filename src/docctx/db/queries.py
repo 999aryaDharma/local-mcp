@@ -138,15 +138,15 @@ def delete_chunks_for_document(
 
 
 def insert_chunk(conn: sqlite3.Connection, chunk: Chunk) -> None:
-    conn.execute(
+    cursor = conn.execute(
         """
         INSERT OR REPLACE INTO chunks
             (id, pack_name, doc_url, heading_path, heading_title,
-             content, summary, content_preview, code_content,
+             content, summary, llm_summary, content_preview, code_content,
              token_count, chunk_index, trust_tier, prev_chunk_id, next_chunk_id)
         VALUES
             (:id, :pack_name, :doc_url, :heading_path, :heading_title,
-             :content, :summary, :content_preview, :code_content,
+             :content, :summary, :llm_summary, :content_preview, :code_content,
              :token_count, :chunk_index, :trust_tier, :prev_chunk_id, :next_chunk_id)
         """,
         {
@@ -157,6 +157,7 @@ def insert_chunk(conn: sqlite3.Connection, chunk: Chunk) -> None:
             "heading_title": chunk.heading_title,
             "content": chunk.content,
             "summary": chunk.summary,
+            "llm_summary": chunk.llm_summary,
             "content_preview": chunk.content_preview,
             "code_content": chunk.code_content,
             "token_count": chunk.token_count,
@@ -166,6 +167,22 @@ def insert_chunk(conn: sqlite3.Connection, chunk: Chunk) -> None:
             "next_chunk_id": chunk.next_chunk_id,
         },
     )
+
+    if chunk.embedding is not None:
+        import sqlite_vec
+        conn.execute(
+            "INSERT INTO chunks_vec(rowid, embedding) VALUES (?, ?)",
+            (cursor.lastrowid, sqlite_vec.serialize_float32(chunk.embedding))
+        )
+        
+    for relation in getattr(chunk, "extracted_relations", []):
+        conn.execute(
+            """
+            INSERT OR IGNORE INTO concept_edges (chunk_id, target_concept, relation_type)
+            VALUES (?, ?, ?)
+            """,
+            (chunk.id, relation["target"], relation["type"])
+        )
 
 
 def get_chunk_by_id(conn: sqlite3.Connection, chunk_id: str) -> Optional[Chunk]:
@@ -245,6 +262,7 @@ def _row_to_chunk(row: sqlite3.Row) -> Chunk:
         heading_title=row["heading_title"],
         content=row["content"],
         summary=row["summary"],
+        llm_summary=row["llm_summary"],
         content_preview=row["content_preview"],
         code_content=row["code_content"],
         token_count=row["token_count"],

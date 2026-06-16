@@ -26,12 +26,21 @@ class RetrievalBoostsConfig:
 
 @dataclass
 class RetrievalConfig:
+    mode: str = "hybrid" # "keyword", "semantic", "hybrid"
+    rrf_k: int = 60
     floor_score: float = 3.0
     confidence_cutoff: float = 6.0
     default_limit: int = 5
     max_limit: int = 10
     default_response_mode: str = "standard"
     boosts: RetrievalBoostsConfig = field(default_factory=RetrievalBoostsConfig)
+
+
+@dataclass
+class EmbeddingsConfig:
+    model: str = "all-MiniLM-L6-v2"
+    provider: str = "local" # "local", "openai"
+    dimension: int = 384
 
 
 @dataclass
@@ -49,6 +58,15 @@ class IngestionConfig:
     respect_robots: bool = True
     request_timeout_sec: int = 30
     user_agent: str = "docctx/1.0 (+https://github.com/you/docctx)"
+    llm_summarize: bool = True
+    llm_provider: str = "gemini"
+    llm_model: str = "gemini-1.5-flash"
+    api_key_env: str = "GEMINI_API_KEY"
+
+
+@dataclass
+class GraphConfig:
+    extract_entities: bool = True
 
 
 @dataclass
@@ -66,8 +84,10 @@ class StorageConfig:
 @dataclass
 class DocctxConfig:
     retrieval: RetrievalConfig = field(default_factory=RetrievalConfig)
+    embeddings: EmbeddingsConfig = field(default_factory=EmbeddingsConfig)
     chunking: ChunkingConfig = field(default_factory=ChunkingConfig)
     ingestion: IngestionConfig = field(default_factory=IngestionConfig)
+    graph: GraphConfig = field(default_factory=GraphConfig)
     freshness: FreshnessConfig = field(default_factory=FreshnessConfig)
     storage: StorageConfig = field(default_factory=StorageConfig)
 
@@ -94,8 +114,12 @@ def load_config() -> DocctxConfig:
     if r:
         boosts_raw = r.get("boosts", {})
         cfg.retrieval = RetrievalConfig(
+            mode=r.get("mode", cfg.retrieval.mode),
+            rrf_k=r.get("rrf_k", cfg.retrieval.rrf_k),
             floor_score=r.get("floor_score", cfg.retrieval.floor_score),
-            confidence_cutoff=r.get("confidence_cutoff", cfg.retrieval.confidence_cutoff),
+            confidence_cutoff=r.get(
+                "confidence_cutoff", cfg.retrieval.confidence_cutoff
+            ),
             default_limit=r.get("default_limit", cfg.retrieval.default_limit),
             max_limit=r.get("max_limit", cfg.retrieval.max_limit),
             default_response_mode=r.get(
@@ -134,6 +158,24 @@ def load_config() -> DocctxConfig:
                 "request_timeout_sec", cfg.ingestion.request_timeout_sec
             ),
             user_agent=i.get("user_agent", cfg.ingestion.user_agent),
+            llm_summarize=i.get("llm_summarize", cfg.ingestion.llm_summarize),
+            llm_provider=i.get("llm_provider", cfg.ingestion.llm_provider),
+            llm_model=i.get("llm_model", cfg.ingestion.llm_model),
+            api_key_env=i.get("api_key_env", cfg.ingestion.api_key_env),
+        )
+
+    e = raw.get("embeddings", {})
+    if e:
+        cfg.embeddings = EmbeddingsConfig(
+            model=e.get("model", cfg.embeddings.model),
+            provider=e.get("provider", cfg.embeddings.provider),
+            dimension=e.get("dimension", cfg.embeddings.dimension),
+        )
+
+    g = raw.get("graph", {})
+    if g:
+        cfg.graph = GraphConfig(
+            extract_entities=g.get("extract_entities", cfg.graph.extract_entities),
         )
 
     fr = raw.get("freshness", {})

@@ -87,6 +87,9 @@ class Chunk:
     prev_chunk_id: Optional[str] = None
     next_chunk_id: Optional[str] = None
     id: Optional[str] = None   # UUID assigned at index time
+    llm_summary: Optional[str] = None # M2: Gemini generated summary
+    embedding: Optional[list[float]] = None # M2: Vector representation
+    extracted_relations: list[dict] = field(default_factory=list) # M2.3: Knowledge Graph metadata
 
     @classmethod
     def make_id(cls, pack_name: str, doc_url: str, chunk_index: int) -> str:

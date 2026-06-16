@@ -61,6 +61,7 @@ async def run_add(
     trust_tier: int = TrustTier.OFFICIAL,
     config: Optional[DocctxConfig] = None,
     progress_cb: Optional[Callable[[str, str], None]] = None,
+    source_type: str = "web",
 ) -> IngestionResult:
     """
     Add a new context pack. Raises PackExistsError if pack already exists.
@@ -77,8 +78,15 @@ async def run_add(
     cfg = config or load_config()
     init_db()
 
-    # Resolve scope (may raise ScopeAmbiguousError)
-    scope_config = resolve_scope(url, scope)
+    if source_type == "web":
+        # Resolve scope (may raise ScopeAmbiguousError)
+        scope_config = resolve_scope(url, scope)
+        scope_rule = scope_config.rule
+    else:
+        # Local or Git paths don't use web scope rules
+        from docctx.ingestion.scope import ScopeConfig, ScopeRule
+        scope_config = ScopeConfig(rule=ScopeRule.SUBTREE, boundaries=[])
+        scope_rule = "local_subtree" if source_type == "local" else "git_repo"
 
     # Derive pack name from URL if not provided
     if not pack_name:
@@ -96,7 +104,7 @@ async def run_add(
     pack = Pack(
         name=pack_name,
         entry_url=url,
-        scope_rule=scope_config.rule,
+        scope_rule=scope_rule,
         trust_tier=trust_tier,
         version_tag=version,
     )
@@ -104,6 +112,29 @@ async def run_add(
     with db_connection() as conn:
         insert_pack(conn, pack)
         conn.commit()
+
+    if source_type in ("local", "git"):
+        from docctx.ingestion.adapters import ingest_local, ingest_git
+        from docctx.ingestion.indexer import finalize_pack_stats
+        
+        with db_connection() as conn:
+            if source_type == "local":
+                docs_count, chunks_count, _ = await ingest_local(
+                    path=url, pack_name=pack_name, conn=conn, cfg=cfg, trust_tier=trust_tier, progress_cb=progress_cb
+                )
+            else:
+                docs_count, chunks_count, _ = await ingest_git(
+                    repo_url=url, pack_name=pack_name, conn=conn, cfg=cfg, trust_tier=trust_tier, progress_cb=progress_cb
+                )
+            finalize_pack_stats(conn, pack_name)
+            conn.commit()
+            
+        result = IngestionResult(pack_name=pack_name, entry_url=url)
+        result.total_chunks = chunks_count
+        # Hack to satisfy return type, adding dummy page results
+        for _ in range(docs_count):
+            result.pages.append(PageResult(url="file://...", status="ok", chunks=1))
+        return result
 
     return await _run_ingestion(
         pack_name=pack_name,
@@ -278,6 +309,13 @@ async def _process_url(
             min_tokens=cfg.chunking.min_tokens,
             target_tokens=cfg.chunking.target_tokens,
         )
+
+        # Enrich (M2: LLM summary + Embeddings)
+        if chunks:
+            if progress_cb:
+                progress_cb(url, "enriching")
+            from docctx.ingestion.enricher import enrich_chunks
+            await enrich_chunks(chunks, cfg)
 
         # Index (single transaction batch)
         if progress_cb:

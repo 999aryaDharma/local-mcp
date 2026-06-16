@@ -68,8 +68,9 @@ def _setup_logging(verbose: bool) -> None:
 
 @app.command()
 def add(
-    url: str = typer.Argument(..., help="Entry URL to ingest as a context pack."),
+    url: str = typer.Argument(..., help="Entry URL or Path to ingest as a context pack."),
     name: Optional[str] = typer.Option(None, "--as", help="Pack name (default: derived from URL)."),
+    type: str = typer.Option("web", "--type", "-t", help="Ingestion type: web, local, git"),
     scope: Optional[str] = typer.Option(
         None, "--scope", help="Crawl scope: page-only | siblings | subtree | site"
     ),
@@ -95,6 +96,11 @@ def add(
 
     def progress_cb(page_url: str, stage: str) -> None:
         pages_done.append((page_url, stage))
+        
+    if cfg.ingestion.llm_summarize and cfg.ingestion.llm_provider == "gemini":
+        import os
+        if not os.environ.get(cfg.ingestion.api_key_env):
+            console.print(f"[yellow]Warning: {cfg.ingestion.api_key_env} is missing. LLM Summaries and Knowledge Graph will be skipped![/yellow]")
 
     try:
         with Progress(
@@ -117,6 +123,7 @@ def add(
                     trust_tier=trust,
                     config=cfg,
                     progress_cb=_cb,
+                    source_type=type,
                 )
             )
 
@@ -574,6 +581,33 @@ def doctor(
         errors = sum(1 for r in results if not r.ok)
         console.print(f"[red]{errors} check(s) failed.[/red]")
         raise typer.Exit(1)
+
+
+# ── eval ───────────────────────────────────────────────────────────────────────
+
+
+@app.command(name="eval")
+def run_eval(
+    dataset: str = typer.Argument(..., help="Path to evaluation dataset JSON."),
+    pack: Optional[str] = typer.Option(None, "--pack", help="Specific pack to search in."),
+    verbose: bool = typer.Option(False, "--verbose", "-V", help="Verbose output."),
+) -> None:
+    """[bold]Eval[/bold] — run metrics against a dataset to evaluate Hit@K."""
+    _setup_logging(verbose)
+    init_db()
+
+    from docctx.eval.runner import run_evaluation
+    try:
+        res = run_evaluation(dataset, pack)
+        console.print(f"\n[bold]Evaluasi docctx (M2)[/bold]")
+        console.print(f"Dataset      : {dataset}")
+        console.print(f"Total Query  : {res.total_queries}")
+        console.print(f"Hit@1        : {res.hit_at_1:.1f}%")
+        console.print(f"Hit@5        : {res.hit_at_5:.1f}%")
+        console.print(f"Empty Rate   : {res.empty_rate:.1f}%")
+        console.print(f"Avg Tokens   : {res.avg_tokens:.0f}")
+    except Exception as e:
+        console.print(f"[red]Error:[/red] {e}")
 
 
 # ── serve ──────────────────────────────────────────────────────────────────────

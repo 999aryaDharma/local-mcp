@@ -50,6 +50,7 @@ class GetChunkResponse:
     previous: Optional[dict] = None
     next: Optional[dict] = None
     document_meta: Optional[dict] = None
+    relations: list[dict] = field(default_factory=list)
 
 
 class RetrievalService:
@@ -81,8 +82,57 @@ class RetrievalService:
         effective_limit = min(limit or cfg.retrieval.default_limit, cfg.retrieval.max_limit)
 
         with db_connection() as conn:
-            # FTS5 search (top 20 candidates)
-            candidates = search_fts(conn, query, pack_filter=pack, top_k=20)
+            mode = cfg.retrieval.mode
+            candidates: list[tuple[Chunk, float]] = []
+            fts_candidates: list[tuple[Chunk, float]] = []
+            vec_candidates: list[tuple[Chunk, float]] = []
+
+            # 1. FTS Search
+            if mode in ("keyword", "hybrid"):
+                fts_candidates = search_fts(conn, query, pack_filter=pack, top_k=20)
+                if mode == "keyword":
+                    candidates = fts_candidates
+            
+            # 2. Vector Search
+            if mode in ("semantic", "hybrid"):
+                from docctx.ingestion.enricher import get_embedding_model
+                from docctx.retrieval.search import search_vector
+                try:
+                    model = get_embedding_model(cfg.embeddings.model)
+                    # encode returns a list/array, we need a flat list of floats
+                    query_embedding = model.encode([query], convert_to_numpy=True)[0].tolist()
+                    vec_candidates = search_vector(conn, query_embedding, pack_filter=pack, top_k=20)
+                    if mode == "semantic":
+                        # Invert distance to score so rank_chunks doesn't break
+                        # Distance is usually 0.0 to 2.0. Let's make score = 2.0 - dist
+                        candidates = [(c, max(0.1, 2.0 - score) * 5) for c, score in vec_candidates]
+                except Exception as e:
+                    logger.warning("Semantic search failed: %s", e)
+                    if mode == "semantic":
+                        candidates = []
+
+            # 3. Hybrid RRF
+            if mode == "hybrid":
+                # Combine using RRF
+                k = cfg.retrieval.rrf_k
+                scores: dict[str, float] = {}
+                chunk_map: dict[str, Chunk] = {}
+                
+                # list 1
+                for rank, (chunk, _) in enumerate(fts_candidates):
+                    scores[chunk.id] = scores.get(chunk.id, 0.0) + 1.0 / (k + rank)
+                    chunk_map[chunk.id] = chunk
+                    
+                # list 2
+                for rank, (chunk, _) in enumerate(vec_candidates):
+                    scores[chunk.id] = scores.get(chunk.id, 0.0) + 1.0 / (k + rank)
+                    chunk_map[chunk.id] = chunk
+                    
+                # Scale RRF scores so they work with rank_chunks thresholds (max score ~10.0)
+                scale_factor = k * 5
+                candidates = [(chunk_map[cid], score * scale_factor) for cid, score in scores.items()]
+                candidates.sort(key=lambda x: x[1], reverse=True)
+
             scanned_chunks = len(candidates)
             scanned_packs = len(set(chunk.pack_name for chunk, _ in candidates))
 
@@ -225,11 +275,19 @@ class RetrievalService:
                         "fetch_status": doc.fetch_status,
                     }
 
+            # Fetch M2.3 relations
+            edges = conn.execute(
+                "SELECT target_concept, relation_type FROM concept_edges WHERE chunk_id = ?",
+                (chunk.id,)
+            ).fetchall()
+            relations = [{"type": row["relation_type"], "target": row["target_concept"]} for row in edges]
+
             return GetChunkResponse(
                 chunk=chunk_dict,
                 previous=prev_dict,
                 next=next_dict,
                 document_meta=doc_meta,
+                relations=relations,
             )
 
     def list_packs(self, name_pattern: Optional[str] = None) -> list[dict]:
@@ -244,7 +302,7 @@ class RetrievalService:
             id=chunk.id or "",
             pack=chunk.pack_name,
             heading_path=chunk.heading_path,
-            summary=chunk.summary,
+            summary=chunk.llm_summary if chunk.llm_summary else chunk.summary,
             content_preview=chunk.content_preview,
             url=chunk.doc_url,
             score=round(sc.final_score, 3),
@@ -265,6 +323,7 @@ class RetrievalService:
             "pack": chunk.pack_name,
             "heading_path": chunk.heading_path,
             "heading_title": chunk.heading_title,
+            "summary": chunk.llm_summary if chunk.llm_summary else chunk.summary,
             "content": chunk.content,
             "code_content": chunk.code_content or None,
             "url": chunk.doc_url,

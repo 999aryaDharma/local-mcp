@@ -54,6 +54,51 @@ def search_fts(
     return results[:top_k]
 
 
+def search_vector(
+    conn: sqlite3.Connection,
+    query_embedding: list[float],
+    pack_filter: Optional[str] = None,
+    top_k: int = 20,
+) -> list[tuple[Chunk, float]]:
+    """Execute KNN vector search and return (Chunk, distance) pairs."""
+    try:
+        import sqlite_vec
+        query_blob = sqlite_vec.serialize_float32(query_embedding)
+        
+        if pack_filter:
+            like_pattern = pack_filter.replace("*", "%").replace("?", "_")
+            sql = """
+                SELECT c.*, v.distance AS score
+                FROM chunks_vec v
+                JOIN chunks c ON v.rowid = c.rowid
+                WHERE v.embedding MATCH ? AND k = ?
+                  AND c.pack_name LIKE ?
+                ORDER BY score
+            """
+            rows = conn.execute(sql, (query_blob, top_k, like_pattern)).fetchall()
+        else:
+            sql = """
+                SELECT c.*, v.distance AS score
+                FROM chunks_vec v
+                JOIN chunks c ON v.rowid = c.rowid
+                WHERE v.embedding MATCH ? AND k = ?
+                ORDER BY score
+            """
+            rows = conn.execute(sql, (query_blob, top_k)).fetchall()
+
+        results = []
+        for row in rows:
+            chunk = _row_to_chunk(row)
+            # Distance: lower is better (0.0 is exact match)
+            score = float(row["score"])
+            results.append((chunk, score))
+        return results
+
+    except Exception as e:
+        logger.warning("Vector search error: %s", e)
+        return []
+
+
 def _run_fts_query(
     conn: sqlite3.Connection,
     fts_query: str,
@@ -116,4 +161,5 @@ def _row_to_chunk(row: sqlite3.Row) -> Chunk:
         trust_tier=row["trust_tier"],
         prev_chunk_id=row["prev_chunk_id"],
         next_chunk_id=row["next_chunk_id"],
+        llm_summary=row["llm_summary"] if "llm_summary" in row.keys() else None,
     )
