@@ -449,7 +449,61 @@ def inspect(
         err_console.print(f"[red]Error:[/red] {e}")
         if verbose:
             import traceback
-            traceback.print_exc()
+            err_console.print(traceback.format_exc())
+        raise typer.Exit(1)
+
+
+# ── export ─────────────────────────────────────────────────────────────────────
+
+
+@app.command()
+def export(
+    pack: str = typer.Argument(..., help="Name of the pack to export."),
+    out: str = typer.Option(..., "--out", "-o", help="Path to the output Markdown file."),
+    verbose: bool = typer.Option(False, "--verbose", "-V"),
+) -> None:
+    """[bold]Export[/bold] a context pack to a single Markdown file."""
+    _setup_logging(verbose)
+    init_db()
+
+    from docctx.db.connection import db_connection
+    from docctx.db.queries import get_pack
+
+    with db_connection() as conn:
+        p = get_pack(conn, pack)
+        if not p:
+            err_console.print(f"[red]Error:[/red] Pack '{pack}' not found.")
+            raise typer.Exit(1)
+        
+        # Get all documents for the pack
+        rows = conn.execute(
+            "SELECT url, title, raw_markdown FROM documents WHERE pack_name = ? ORDER BY id ASC",
+            (pack,)
+        ).fetchall()
+        
+    if not rows:
+        err_console.print(f"[yellow]Warning:[/yellow] Pack '{pack}' is empty.")
+        raise typer.Exit(1)
+        
+    try:
+        with open(out, "w", encoding="utf-8") as f:
+            f.write(f"# Exported Pack: {pack}\n\n")
+            f.write(f"> Entry URL: {p.entry_url}\n")
+            f.write(f"> Total Documents: {len(rows)}\n\n")
+            
+            for row in rows:
+                url = row["url"]
+                title = row["title"] or url
+                f.write(f"---\n\n## {title}\n\n**Source:** {url}\n\n")
+                f.write(row["raw_markdown"])
+                f.write("\n\n")
+                
+        console.print(f"[green]✓ Successfully exported {len(rows)} documents from '{pack}' to '{out}'.[/green]")
+    except Exception as e:
+        err_console.print(f"[red]Failed to write to file:[/red] {e}")
+        if verbose:
+            import traceback
+            err_console.print(traceback.format_exc())
         raise typer.Exit(1)
 
 
