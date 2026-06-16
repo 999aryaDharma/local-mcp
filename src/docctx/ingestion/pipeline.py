@@ -7,7 +7,7 @@ import asyncio
 import hashlib
 import logging
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Callable, Optional
 
 from docctx.config import DocctxConfig, load_config
@@ -262,7 +262,7 @@ async def _process_url(
             raw_markdown=extracted.markdown,
             title=extracted.title,
             fetch_status=FetchStatus.OK,
-            fetched_at=datetime.utcnow(),
+            fetched_at=datetime.now(UTC),
         )
 
         # Chunk
@@ -284,6 +284,7 @@ async def _process_url(
             progress_cb(url, "indexing")
 
         n_chunks = index_document(conn, document, chunks, replace=replace)
+        conn.commit()
         return PageResult(url=url, status="ok", chunks=n_chunks)
 
     except Exception as e:
@@ -296,11 +297,12 @@ async def _process_url(
             raw_markdown="",
             title=None,
             fetch_status=FetchStatus.FAILED,
-            fetched_at=datetime.utcnow(),
+            fetched_at=datetime.now(UTC),
         )
         try:
             from docctx.db.queries import insert_document
             insert_document(conn, failed_doc)
+            conn.commit()
         except Exception:
             pass
         return PageResult(url=url, status="failed", chunks=0, error=str(e))

@@ -13,38 +13,14 @@ from docctx.paths import get_db_path
 SCHEMA_VERSION = 1
 
 
+from docctx.retrieval.tokenizer import normalize_for_index
+
 def normalize_text(text: str) -> str:
     """
     Pre-process text for FTS5 indexing.
-    Expands camelCase and snake_case so both whole tokens and parts are searchable.
-
-    Example:
-        "useEffect" → "useEffect use Effect"
-        "fetch_data" → "fetch_data fetch data"
+    Delegates to normalize_for_index in tokenizer.py.
     """
-    if not text:
-        return ""
-
-    import re
-
-    tokens = text.split()
-    expanded = []
-
-    for token in tokens:
-        expanded.append(token)
-
-        # Handle snake_case
-        if "_" in token:
-            parts = [p for p in token.split("_") if p]
-            if len(parts) > 1:
-                expanded.extend(parts)
-
-        # Handle camelCase (insert space before uppercase letters preceded by lowercase)
-        camel_parts = re.sub(r"([a-z])([A-Z])", r"\1 \2", token).split()
-        if len(camel_parts) > 1:
-            expanded.extend(camel_parts)
-
-    return " ".join(expanded)
+    return normalize_for_index(text)
 
 
 def get_connection(db_path: Path | None = None) -> sqlite3.Connection:

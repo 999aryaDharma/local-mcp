@@ -20,6 +20,8 @@ class ThresholdResult:
     @property
     def result_status(self) -> str:
         if not self.passed:
+            if self.dropped and any(d.final_score >= self.floor_score for d in self.dropped):
+                return "low_confidence"  # Actually means filtered by min_confidence
             if self.max_score > 0:
                 return "low_confidence"
             return "empty"

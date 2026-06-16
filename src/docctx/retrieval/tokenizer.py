@@ -79,7 +79,7 @@ def build_fts5_query(query: str) -> tuple[str, str]:
         return ('""', '""')
 
     # Phase 1: quoted phrase for exact match
-    phrase_query = f'"{query}"'
+    phrase_query = f'"{query.replace("\"", "\"\"")}"'
 
     # Phase 2: individual terms with OR
     # Escape special FTS5 chars

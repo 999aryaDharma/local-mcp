@@ -81,23 +81,23 @@ class RetrievalService:
         effective_limit = min(limit or cfg.retrieval.default_limit, cfg.retrieval.max_limit)
 
         with db_connection() as conn:
-            # Count scanned packs
-            all_packs = list_packs(conn, pack)
-            scanned_packs = len(all_packs)
-
-            if scanned_packs == 0:
-                return SearchResponse(
-                    chunks=[],
-                    result_status="empty",
-                    scanned_packs=0,
-                    scanned_chunks=0,
-                    max_score=0.0,
-                    suggestion="No packs found. Add documentation with `docctx add <url>`.",
-                )
-
             # FTS5 search (top 20 candidates)
             candidates = search_fts(conn, query, pack_filter=pack, top_k=20)
             scanned_chunks = len(candidates)
+            scanned_packs = len(set(chunk.pack_name for chunk, _ in candidates))
+
+            if not candidates:
+                # Check if there are any packs at all
+                all_packs = list_packs(conn, pack)
+                if not all_packs:
+                    return SearchResponse(
+                        chunks=[],
+                        result_status="empty",
+                        scanned_packs=0,
+                        scanned_chunks=0,
+                        max_score=0.0,
+                        suggestion="No packs found. Add documentation with `docctx add <url>`.",
+                    )
 
             if not candidates:
                 return SearchResponse(

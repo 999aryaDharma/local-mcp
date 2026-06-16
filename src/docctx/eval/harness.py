@@ -46,18 +46,18 @@ class EvalReport:
             return cls(0, 0.0, 0.0, 0.0, 0.0, [])
 
         total = len(results)
-        
-        # Calculate rates for queries that expect a hit
-        hit_queries = [r for r in results if r.expected_empty_matched is False or not r.is_empty or r.hit_at_5] 
+
+        # Hit rate: only for queries that expect a result
+        hit_queries = [r for r in results if r.category != "oos" and r.expected_empty is False]
         hit_total = len(hit_queries)
-        
-        # This is a simplification. If we have expected chunks, use those.
-        # If no expected chunk is provided, hit_at_1 is True if results are not empty
-        
         hits_1 = sum(1 for r in hit_queries if r.hit_at_1)
         hits_5 = sum(1 for r in hit_queries if r.hit_at_5)
-        
-        empty_count = sum(1 for r in results if r.is_empty)
+
+        # Empty rate: only for OOS queries
+        oos_queries = [r for r in results if r.category == "oos" or r.expected_empty is True]
+        empty_count = sum(1 for r in oos_queries if r.is_empty)
+        empty_rate = (empty_count / len(oos_queries)) if oos_queries else 0.0
+
         top_scores = [r.top_score for r in results if r.top_score > 0]
         avg_score = sum(top_scores) / len(top_scores) if top_scores else 0.0
 
@@ -65,7 +65,7 @@ class EvalReport:
             total_queries=total,
             hit_at_1_rate=(hits_1 / hit_total) if hit_total else 0.0,
             hit_at_5_rate=(hits_5 / hit_total) if hit_total else 0.0,
-            empty_rate=empty_count / total,
+            empty_rate=empty_rate,
             avg_top_score=avg_score,
             results=results,
         )

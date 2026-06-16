@@ -119,10 +119,7 @@ def rank_chunks(
     # Sort by final_score descending
     results.sort(key=lambda s: s.final_score, reverse=True)
 
-    # Apply pack filter (glob)
-    if pack_filter:
-        import fnmatch
-        results = [r for r in results if fnmatch.fnmatch(r.chunk.pack_name, pack_filter)]
+    # Pack filter is already applied in SQL by search_fts, no need to do it here.
 
     # Assign confidence labels
     for scored in results:

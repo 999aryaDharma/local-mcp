@@ -18,7 +18,7 @@ logger = logging.getLogger(__name__)
 # Weights: heading_path=1.5, heading_title=1.5, content=1.0, code_content=0.5
 # Note: UNINDEXED columns don't count in BM25 weight array
 # FTS5 bm25() uses negative scores (more negative = better match)
-_BM25_WEIGHTS = "1.0, 1.5, 1.5, 1.0, 0.5"
+_BM25_WEIGHTS = "1.5, 1.5, 1.0, 0.5"
 
 
 def search_fts(

@@ -38,7 +38,10 @@ Install using npm or yarn. Here is how you do it.
 
 ## Usage
 
-Basic usage example.
+Basic usage example. You can run this directly in your terminal.
+It is very easy to use and provides a lot of features out of the box.
+Make sure to check the documentation for more details.
+This section is now long enough to be kept!
 """
     chunks = chunk_document(markdown, pack_name="test", doc_url="http://example.com/doc")
     assert len(chunks) >= 2
@@ -70,7 +73,7 @@ Content C.
 
 
 def test_chunk_document_no_headings():
-    markdown = "Just some plain text without any headings. It should still produce a chunk."
+    markdown = "Just some plain text without any headings. It should still produce a chunk. This is extra text to ensure that the token count exceeds twenty tokens, so that the new filter for removing micro terminal chunks does not drop this chunk."
     chunks = chunk_document(markdown, pack_name="test", doc_url="http://example.com/")
     assert len(chunks) == 1
     assert chunks[0].content

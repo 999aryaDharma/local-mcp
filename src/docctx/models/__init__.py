@@ -5,7 +5,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
-from enum import IntEnum
+from enum import IntEnum, StrEnum
 from typing import Optional
 
 
@@ -15,14 +15,14 @@ class TrustTier(IntEnum):
     UNKNOWN = 3     # unclassified
 
 
-class ScopeRule(str):
+class ScopeRule(StrEnum):
     PAGE_ONLY = "page-only"
     SIBLINGS = "siblings"
     SUBTREE = "subtree"
     SITE = "site"
 
 
-class FetchStatus(str):
+class FetchStatus(StrEnum):
     OK = "ok"
     FAILED = "failed"
     SKIPPED = "skipped"

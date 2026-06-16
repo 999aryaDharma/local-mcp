@@ -255,7 +255,7 @@ def remove(
 
 
 @app.command(name="list")
-def list_packs(
+def cmd_list_packs(
     verbose: bool = typer.Option(False, "--verbose", "-V"),
     output_json: bool = typer.Option(False, "--json"),
 ) -> None:

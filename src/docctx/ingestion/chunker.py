@@ -167,10 +167,12 @@ def _split_oversized_section(
         para_tokens = estimate_tokens(para)
 
         if current_tokens + para_tokens > max_tokens and current_lines:
+            sub_content = "\n".join(current_lines)
             chunks.append(
                 _Section(
                     heading_stack=list(section.heading_stack),
                     content_lines=current_lines,
+                    code_blocks=["\n".join(b) for b in re.findall(r"```[^\n]*\n(.*?)```", sub_content, re.DOTALL)],
                 )
             )
             current_lines = [para]
@@ -180,10 +182,12 @@ def _split_oversized_section(
             current_tokens += para_tokens
 
     if current_lines:
+        sub_content = "\n".join(current_lines)
         chunks.append(
             _Section(
                 heading_stack=list(section.heading_stack),
                 content_lines=current_lines,
+                code_blocks=["\n".join(b) for b in re.findall(r"```[^\n]*\n(.*?)```", sub_content, re.DOTALL)],
             )
         )
 
@@ -244,8 +248,12 @@ def chunk_document(
             merged.append(s)
             i += 1
 
-    # Remove empty chunks
-    merged = [s for s in merged if s.content.strip()]
+    # Remove empty chunks and micro terminal chunks
+    MIN_FINAL_TOKENS = 20
+    merged = [
+        s for i, s in enumerate(merged) 
+        if s.content.strip() and (s.token_count >= MIN_FINAL_TOKENS or i < len(merged) - 1 or len(merged) == 1)
+    ]
 
     # Step 4: Build Chunk objects
     chunks: list[Chunk] = []
