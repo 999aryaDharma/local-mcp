@@ -548,8 +548,19 @@ def run_eval(
 @app.command()
 def doctor(
     output_json: bool = typer.Option(False, "--json"),
+    optimize: bool = typer.Option(False, "--optimize", help="Update SQLite and FTS5 statistics"),
 ) -> None:
     """[bold]Doctor[/bold] — run health checks on the docctx installation."""
+    if optimize:
+        from docctx.db.connection import db_connection
+        from docctx.db.queries import run_optimize
+        init_db()
+        with db_connection(write=True) as conn:
+            run_optimize(conn)
+        console.print("[green]✓ FTS5 statistics updated successfully.[/green]")
+        if not output_json:
+            return
+
     from docctx.observability.doctor import format_doctor_report, run_doctor
 
     results = run_doctor()

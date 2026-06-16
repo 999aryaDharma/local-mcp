@@ -127,6 +127,8 @@ async def run_add(
                     repo_url=url, pack_name=pack_name, conn=conn, cfg=cfg, trust_tier=trust_tier, progress_cb=progress_cb
                 )
             finalize_pack_stats(conn, pack_name)
+            from docctx.db.queries import run_optimize
+            run_optimize(conn)
             conn.commit()
             
         result = IngestionResult(pack_name=pack_name, entry_url=url)
@@ -246,6 +248,8 @@ async def _run_ingestion(
 
             # Update pack stats
             finalize_pack_stats(conn, pack_name)
+            from docctx.db.queries import run_optimize
+            run_optimize(conn)
             conn.commit()
 
     return result

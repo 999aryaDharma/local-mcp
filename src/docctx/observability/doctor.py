@@ -29,6 +29,31 @@ class CheckResult:
         return cls(name=name, ok=False, description=description, hint=hint)
 
 
+def _check_fts5_stats(conn) -> CheckResult:
+    """Check apakah FTS5 statistics perlu di-update."""
+    try:
+        # Hitung jumlah chunks dan estimasi apakah perlu optimize
+        row = conn.execute("SELECT COUNT(*) as n FROM chunks").fetchone()
+        total = row["n"] if row else 0
+
+        row2 = conn.execute(
+            "SELECT COUNT(*) as n FROM schema_version WHERE notes LIKE '%optimize%' "
+            "AND applied_at > datetime('now', '-7 days')"
+        ).fetchone()
+        recent_optimize = (row2["n"] if row2 else 0) > 0
+
+        if total > 10000 and not recent_optimize:
+            return CheckResult(
+                name="fts5_stats",
+                ok=True,  # bukan error, tapi ada rekomendasi
+                description=f"{total} chunks indexed. FTS5 stats may be stale.",
+                hint="Run `docctx doctor --optimize` to update FTS5 term statistics for better ranking.",
+            )
+        return CheckResult.success("fts5_stats", f"{total} chunks indexed, stats OK.")
+    except Exception as e:
+        return CheckResult.success("fts5_stats", f"Check skipped: {e}")
+
+
 def run_doctor() -> list[CheckResult]:
     """Run all health checks and return results."""
     results = []
@@ -209,6 +234,13 @@ def run_doctor() -> list[CheckResult]:
                 hint="Check directory permissions.",
             )
         )
+
+    # Check 8: FTS5 Stats Check
+    try:
+        with db_connection() as conn:
+            results.append(_check_fts5_stats(conn))
+    except Exception as e:
+        results.append(CheckResult.success("fts5_stats", f"Check skipped: {e}"))
 
     return results
 
