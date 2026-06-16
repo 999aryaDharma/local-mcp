@@ -71,3 +71,6 @@ store.db
 *.sqlite3
 cache/
 mcp_config.json
+
+# Exclude docs per user request
+docs/
