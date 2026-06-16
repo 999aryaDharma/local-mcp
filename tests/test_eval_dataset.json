@@ -1,0 +1,14 @@
+{
+  "queries": [
+    {
+      "text": "read_text pathlib",
+      "category": "exact_api",
+      "expected_empty": false
+    },
+    {
+      "text": "useEffect cleanup",
+      "category": "conceptual",
+      "expected_empty": true
+    }
+  ]
+}

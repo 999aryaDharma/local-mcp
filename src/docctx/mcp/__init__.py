@@ -1,0 +1,1 @@
+"""docctx.mcp package."""
