@@ -93,7 +93,7 @@ async def run_add(
         pack_name = _derive_pack_name(url)
 
     # Check for existing pack
-    with db_connection() as conn:
+    with db_connection(write=True) as conn:
         if pack_exists(conn, pack_name):
             raise PackExistsError(
                 f"Pack '{pack_name}' already exists. Use `docctx refresh {pack_name}` to update.",
@@ -109,7 +109,7 @@ async def run_add(
         version_tag=version,
     )
 
-    with db_connection() as conn:
+    with db_connection(write=True) as conn:
         insert_pack(conn, pack)
         conn.commit()
 
@@ -117,7 +117,7 @@ async def run_add(
         from docctx.ingestion.adapters import ingest_local, ingest_git
         from docctx.ingestion.indexer import finalize_pack_stats
         
-        with db_connection() as conn:
+        with db_connection(write=True) as conn:
             if source_type == "local":
                 docs_count, chunks_count, _ = await ingest_local(
                     path=url, pack_name=pack_name, conn=conn, cfg=cfg, trust_tier=trust_tier, progress_cb=progress_cb
@@ -159,7 +159,7 @@ async def run_refresh(
     """
     cfg = config or load_config()
 
-    with db_connection() as conn:
+    with db_connection(write=True) as conn:
         from docctx.db.queries import get_pack
         pack = get_pack(conn, pack_name)
 
@@ -228,7 +228,7 @@ async def _run_ingestion(
         logger.info("Ingesting %d URLs for pack '%s'", len(urls), pack_name)
 
         # Process each URL
-        with db_connection() as conn:
+        with db_connection(write=True) as conn:
             for url in urls:
                 page_result = await _process_url(
                     url=url,

@@ -63,6 +63,11 @@ class RetrievalService:
 
     def __init__(self, config: Optional[DocctxConfig] = None):
         self.cfg = config or load_config()
+        from docctx.retrieval.cache import QueryCache
+        # Using default cache settings as fallback since we might not have added them to config.py yet
+        cache_max_size = getattr(self.cfg.retrieval, "cache_max_size", 100)
+        cache_ttl_seconds = getattr(self.cfg.retrieval, "cache_ttl_seconds", 300.0)
+        self._cache = QueryCache(max_size=cache_max_size, ttl_seconds=cache_ttl_seconds)
 
     def search(
         self,
@@ -80,6 +85,12 @@ class RetrievalService:
         """
         cfg = self.cfg
         effective_limit = min(limit or cfg.retrieval.default_limit, cfg.retrieval.max_limit)
+
+        # Cache lookup
+        if not trace and token_budget is None:
+            cached = self._cache.get(query, pack, effective_limit, min_confidence)
+            if cached is not None:
+                return cached
 
         with db_connection() as conn:
             mode = cfg.retrieval.mode
@@ -138,9 +149,9 @@ class RetrievalService:
 
             if not candidates:
                 # Check if there are any packs at all
-                all_packs = list_packs(conn, pack)
-                if not all_packs:
-                    return SearchResponse(
+                any_packs = conn.execute("SELECT 1 FROM packs LIMIT 1").fetchone()
+                if any_packs is None:
+                    response = SearchResponse(
                         chunks=[],
                         result_status="empty",
                         scanned_packs=0,
@@ -148,9 +159,11 @@ class RetrievalService:
                         max_score=0.0,
                         suggestion="No packs found. Add documentation with `docctx add <url>`.",
                     )
+                    if not trace: self._cache.set(query, pack, effective_limit, min_confidence, response)
+                    return response
 
             if not candidates:
-                return SearchResponse(
+                response = SearchResponse(
                     chunks=[],
                     result_status="empty",
                     scanned_packs=scanned_packs,
@@ -161,6 +174,8 @@ class RetrievalService:
                         "Try different terms or check `docctx list` for available packs."
                     ),
                 )
+                if not trace: self._cache.set(query, pack, effective_limit, min_confidence, response)
+                return response
 
             # Boost re-rank
             scored = rank_chunks(
@@ -207,7 +222,7 @@ class RetrievalService:
                         "confidence": getattr(dc, "confidence", "below_floor")
                     })
 
-            return SearchResponse(
+            response = SearchResponse(
                 chunks=chunk_results,
                 result_status=threshold_result.result_status,
                 scanned_packs=scanned_packs,
@@ -217,6 +232,17 @@ class RetrievalService:
                 token_usage=actual_token_usage,
                 dropped_chunks=dropped_info,
             )
+
+            if not trace and response.result_status != "error":
+                self._cache.set(query, pack, effective_limit, min_confidence, response)
+            
+            return response
+
+    def invalidate_cache(self, pack_name: Optional[str] = None) -> None:
+        self._cache.invalidate(pack_name)
+
+    def cache_stats(self) -> dict:
+        return self._cache.stats()
 
     def get_chunk(
         self,

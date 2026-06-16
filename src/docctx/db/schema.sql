@@ -124,3 +124,14 @@ CREATE TABLE IF NOT EXISTS concept_edges (
 
 -- Insert initial schema version
 INSERT OR IGNORE INTO schema_version(version, notes) VALUES (1, 'M1 initial schema');
+
+-- Performance Indexes (Multi-Project Scale)
+CREATE INDEX IF NOT EXISTS idx_chunks_pack_heading_trust
+    ON chunks(pack_name, heading_title, trust_tier);
+
+CREATE INDEX IF NOT EXISTS idx_chunks_prev_next
+    ON chunks(prev_chunk_id, next_chunk_id)
+    WHERE prev_chunk_id IS NOT NULL OR next_chunk_id IS NOT NULL;
+
+CREATE INDEX IF NOT EXISTS idx_packs_last_refreshed
+    ON packs(last_refreshed, name);

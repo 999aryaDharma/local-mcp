@@ -185,6 +185,17 @@ def serve() -> None:
         logger.error("Failed to initialize DB: %s", e)
         sys.exit(1)
 
+    # Pre-warm service (bukan lazy init) supaya first query tidak kena cold start
+    from docctx.mcp.tools import get_service
+    try:
+        svc = get_service()
+        # Pre-warm read connection
+        from docctx.db.connection import get_read_connection
+        get_read_connection()
+        logger.info("MCP server ready. Cache: %s", svc.cache_stats())
+    except Exception as e:
+        logger.warning("Service pre-warm failed: %s", e)
+
     async def main():
         async with mcp.server.stdio.stdio_server() as (read_stream, write_stream):
             await app.run(

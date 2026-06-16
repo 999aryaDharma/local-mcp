@@ -34,6 +34,9 @@ class RetrievalConfig:
     max_limit: int = 10
     default_response_mode: str = "standard"
     boosts: RetrievalBoostsConfig = field(default_factory=RetrievalBoostsConfig)
+    cache_enabled: bool = True
+    cache_max_size: int = 100
+    cache_ttl_seconds: float = 300.0
 
 
 @dataclass

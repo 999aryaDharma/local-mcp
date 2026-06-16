@@ -254,6 +254,8 @@ def _row_to_document(row: sqlite3.Row) -> Document:
 
 
 def _row_to_chunk(row: sqlite3.Row) -> Chunk:
+    # Build relations if present
+    # Concept relations are loaded separately in get_chunk via service.
     return Chunk(
         id=row["id"],
         pack_name=row["pack_name"],
@@ -262,7 +264,7 @@ def _row_to_chunk(row: sqlite3.Row) -> Chunk:
         heading_title=row["heading_title"],
         content=row["content"],
         summary=row["summary"],
-        llm_summary=row["llm_summary"],
+        llm_summary=row.get("llm_summary"),
         content_preview=row["content_preview"],
         code_content=row["code_content"],
         token_count=row["token_count"],
@@ -271,3 +273,13 @@ def _row_to_chunk(row: sqlite3.Row) -> Chunk:
         prev_chunk_id=row["prev_chunk_id"],
         next_chunk_id=row["next_chunk_id"],
     )
+
+
+def run_optimize(conn: sqlite3.Connection) -> None:
+    """
+    Update SQLite query planner statistics dan FTS5 term stats.
+    Jalankan setelah bulk ingestion atau via `docctx doctor --optimize`.
+    """
+    conn.execute("PRAGMA optimize")
+    conn.execute("INSERT INTO chunks_fts(chunks_fts) VALUES('optimize')")
+    conn.commit()

@@ -243,7 +243,7 @@ def remove(
     from docctx.db.connection import db_connection
     from docctx.db.queries import delete_pack, get_pack
 
-    with db_connection() as conn:
+    with db_connection(write=True) as conn:
         pack = get_pack(conn, pack_name)
         if pack is None:
             err_console.print(f"[red]Error:[/red] Pack '{pack_name}' not found.")
@@ -608,6 +608,140 @@ def run_eval(
         console.print(f"Avg Tokens   : {res.avg_tokens:.0f}")
     except Exception as e:
         console.print(f"[red]Error:[/red] {e}")
+
+
+# ── perf ───────────────────────────────────────────────────────────────────────
+
+
+@app.command(name="perf")
+def run_perf(
+    pack: Optional[str] = typer.Option(None, "--pack", "-p",
+                                        help="Filter pack untuk benchmark. Default: semua packs."),
+    queries: int = typer.Option(20, "--queries", "-q",
+                                 help="Jumlah query untuk benchmark."),
+    warmup: int = typer.Option(3, "--warmup", help="Query warmup sebelum measure."),
+    output_json: bool = typer.Option(False, "--json"),
+) -> None:
+    """[bold]Perf[/bold] — jalankan latency benchmark untuk retrieval."""
+    import time
+    from docctx.retrieval.service import RetrievalService
+
+    SAMPLE_QUERIES = [
+        "how to handle errors", "async function example", "installation setup",
+        "configuration options", "useEffect cleanup", "database connection pool",
+        "authentication middleware", "type definition interface", "test setup teardown",
+        "environment variables", "dependency injection", "error boundary",
+        "pagination cursor", "webhook handler", "cache invalidation strategy",
+        "rate limiting implementation", "file upload multipart", "websocket connection",
+        "background job queue", "migration rollback",
+    ]
+
+    init_db()
+    svc = RetrievalService()
+    sample = SAMPLE_QUERIES[:queries]
+
+    if not output_json:
+        console.print(f"[dim]Warming up ({warmup} queries)...[/dim]")
+    for q in sample[:warmup]:
+        svc.search(query=q, pack=pack)
+
+    svc.invalidate_cache()
+
+    if not output_json:
+        console.print(f"[dim]Benchmarking {len(sample)} queries (cold cache)...[/dim]")
+    cold_times = []
+    for q in sample:
+        t0 = time.perf_counter()
+        svc.search(query=q, pack=pack)
+        cold_times.append((time.perf_counter() - t0) * 1000)
+
+    if not output_json:
+        console.print(f"[dim]Benchmarking {len(sample)} queries (warm cache)...[/dim]")
+    warm_times = []
+    for q in sample:
+        t0 = time.perf_counter()
+        svc.search(query=q, pack=pack)
+        warm_times.append((time.perf_counter() - t0) * 1000)
+
+    def percentile(data: list[float], p: int) -> float:
+        sorted_data = sorted(data)
+        idx = int(len(sorted_data) * p / 100)
+        return sorted_data[min(idx, len(sorted_data) - 1)]
+
+    from docctx.db.connection import get_read_connection
+    conn = get_read_connection()
+    total_chunks = conn.execute("SELECT COUNT(*) as n FROM chunks").fetchone()["n"]
+    total_packs = conn.execute("SELECT COUNT(*) as n FROM packs").fetchone()["n"]
+
+    results = {
+        "db": {
+            "total_chunks": total_chunks,
+            "total_packs": total_packs,
+            "pack_filter": pack or "(all)",
+        },
+        "cold_cache": {
+            "p50_ms": round(percentile(cold_times, 50), 2),
+            "p95_ms": round(percentile(cold_times, 95), 2),
+            "p99_ms": round(percentile(cold_times, 99), 2),
+            "max_ms": round(max(cold_times), 2),
+        },
+        "warm_cache": {
+            "p50_ms": round(percentile(warm_times, 50), 2),
+            "p95_ms": round(percentile(warm_times, 95), 2),
+            "p99_ms": round(percentile(warm_times, 99), 2),
+            "max_ms": round(max(warm_times), 2),
+        },
+        "target": {
+            "p50_ms": 50,
+            "p95_ms": 200,
+            "cold_p95_ok": percentile(cold_times, 95) < 200,
+            "warm_p95_ok": percentile(warm_times, 95) < 50,
+        },
+        "cache_stats": svc.cache_stats(),
+    }
+
+    if output_json:
+        import json
+        print(json.dumps(results, indent=2))
+        return
+
+    from rich.table import Table
+
+    console.print(f"\n[bold]Perf Report[/bold] — {total_chunks:,} chunks, {total_packs} packs\n")
+
+    table = Table(show_header=True, header_style="bold")
+    table.add_column("Metric")
+    table.add_column("Cold Cache", justify="right")
+    table.add_column("Warm Cache", justify="right")
+    table.add_column("Target", justify="right")
+
+    def fmt(ms: float, target: float) -> str:
+        color = "green" if ms <= target else "red"
+        return f"[{color}]{ms:.1f}ms[/{color}]"
+
+    table.add_row("p50", fmt(results["cold_cache"]["p50_ms"], 50),
+                  fmt(results["warm_cache"]["p50_ms"], 10), "< 50ms")
+    table.add_row("p95", fmt(results["cold_cache"]["p95_ms"], 200),
+                  fmt(results["warm_cache"]["p95_ms"], 50), "< 200ms")
+    table.add_row("p99", fmt(results["cold_cache"]["p99_ms"], 500),
+                  fmt(results["warm_cache"]["p99_ms"], 100), "< 500ms")
+    table.add_row("max", f"{results['cold_cache']['max_ms']:.1f}ms",
+                  f"{results['warm_cache']['max_ms']:.1f}ms", "—")
+    console.print(table)
+
+    cold_ok = results["target"]["cold_p95_ok"]
+    warm_ok = results["target"]["warm_p95_ok"]
+
+    if cold_ok and warm_ok:
+        console.print("\n[green]✓ All targets met.[/green]")
+    else:
+        if not cold_ok:
+            console.print(f"\n[red]✗ Cold p95 exceeds 200ms target.[/red]")
+            console.print("[dim]  → Run `docctx doctor --optimize` to update FTS5 stats.")
+            console.print("[dim]  → Consider adding more specific pack filters in your workflow.")
+        if not warm_ok:
+            console.print(f"\n[yellow]~ Warm p95 exceeds 50ms target (cache not effective).[/yellow]")
+            console.print("[dim]  → Check cache config: retrieval.cache_ttl_seconds")
 
 
 # ── serve ──────────────────────────────────────────────────────────────────────
